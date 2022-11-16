@@ -17,8 +17,8 @@ spec:
         - values.yaml
         - values-{{ .Values.runenv }}.yaml
   syncPolicy:
+    syncOptions:
+    - CreateNamespace=true
     automated:
       prune: true
       selfHeal: true
-    syncOptions:
-    - CreateNamespace=true

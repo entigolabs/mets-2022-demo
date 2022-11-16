@@ -15,10 +15,9 @@ spec:
     helm:
       valueFiles:
         - values.yaml
-
   syncPolicy:
+    syncOptions:
+    - CreateNamespace=true
     automated:
       prune: true
       selfHeal: true 
-    syncOptions:
-    - CreateNamespace=true
