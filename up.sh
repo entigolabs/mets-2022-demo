@@ -12,12 +12,16 @@ git clone --branch dev https://github.com/entigolabs/mets-2022-demo.git
 
 #Instlal dependencies (helm, kubectl, kind...)
 cd mets-2022-demo && ./install-dependencies.sh
-
+source /etc/bash_completion.d/kubectl
 #Create kind kubernetes clusters
 kind create cluster --config kind.yaml
 
 #List kind clusters
 kubectl config get-contexts
+kubectl get nodes
+kubectl get nodes -l ingress=true
+kubectl get nodes -l monitoring=true
+
 
 #Argocd bootstrap
 kubectl create ns argocd
@@ -37,7 +41,7 @@ helm template argocd-yaml/argocd/ | kubectl apply -n argocd -f-
 kubectl get svc -n haproxy  haproxy-ingress
 lb_ip=$(kubectl get svc -n haproxy  haproxy-ingress --output jsonpath='{.status.loadBalancer.ingress[0].ip}')
 
-iptables -I FORWARD -p tcp -d lb_ip --match multiport --dports 80,443 -m state --state NEW,ESTABLISHED,RELATED -j ACCEPT
+iptables -I FORWARD -p tcp -d $lb_ip --match multiport --dports 80,443 -m state --state NEW,ESTABLISHED,RELATED -j ACCEPT
 iptables -t nat -I PREROUTING -p tcp -i ens5 --dport 80 -j DNAT --to-destination $lb_ip:80
 
 #Get argocd password
