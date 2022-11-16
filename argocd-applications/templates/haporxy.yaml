@@ -16,7 +16,6 @@ spec:
       ignoreMissingValueFiles: true
       valueFiles:
         - values.yaml
-        - values-{{ .Values.runenv }}.yaml
 
   syncPolicy:
     automated:
