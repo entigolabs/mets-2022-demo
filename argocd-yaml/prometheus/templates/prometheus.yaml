@@ -8,9 +8,8 @@ metadata:
   annotations:
     ingress.kubernetes.io/ssl-redirect: "false"
 spec:
-  ingressClassName: "haproxy-int"
   rules:
-  - host: prometheus.{{ .Values.internaldomain }}
+  - host: {{ .Values.internaldomain }}
     http:
       paths:
       - path: /

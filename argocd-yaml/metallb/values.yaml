@@ -1,6 +1,6 @@
 
 
-iprange: 10.250.1.200-10.250.1.230
+iprange: 172.18.0.200-172.18.0.209
 
 nodeSelector:
   ingress: "true"

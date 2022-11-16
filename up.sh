@@ -23,8 +23,7 @@ kubectl config get-contexts
 kubectl create ns argocd
 helm template argocd-yaml/argocd/ | kubectl apply -n argocd -f- 
 
-#Get argocd password
-kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo
+
 
 #Create argocd app-of-apps
   #For dev
@@ -34,3 +33,13 @@ kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.pas
   #For prod
   helm template argocd-yaml/app-of-apps/ --set runenv="prod" --set gitbranch="main" --set gitrepo="https://github.com/entigolabs/mets-2022-demo.git"  | kubectl apply -n argocd -f-
 
+#Direct traffic from outside to our cluster.
+
+iptables -I FORWARD -p tcp -d 172.18.0.4 --match multiport --dports 80,443 -m state --state NEW,ESTABLISHED,RELATED -j ACCEPT
+iptables -t nat -I PREROUTING -p tcp -i ens5 --dport 80 -j DNAT --to-destination 172.18.0.4:80
+
+#Get argocd password
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo
+#Get ingress
+kubectl get ingress -n argocd
+#Use browser to open http://agrgocd.dev.kind.learn.entigo.io
