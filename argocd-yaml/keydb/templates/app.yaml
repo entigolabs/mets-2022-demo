@@ -1,3 +1,4 @@
+#Taken from https://artifacthub.io/packages/helm/enapter/keydb
 ---
 # Source: keydb/templates/pdb.yaml
 apiVersion: policy/v1
@@ -183,6 +184,9 @@ spec:
     metadata:
       annotations:
         checksum/secret-utils: ed5686995bdb97709f80ebd73bb76b5928595ec868421c29a9c83cf08a88bcfd
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9121"
       labels:
         helm.sh/chart: keydb-0.43.1
         app.kubernetes.io/name: keydb
@@ -265,6 +269,36 @@ spec:
         - name: utils
           mountPath: /utils
           readOnly: true
+      - name: redis-exporter
+        image: oliver006/redis_exporter:v1.43.1-alpine
+        imagePullPolicy: IfNotPresent
+        args:
+        env:
+        - name: REDIS_ADDR
+          value: redis://localhost:6379
+        - name: REDIS_PORT
+          value: "6379"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 9121
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 9121
+        startupProbe:
+          failureThreshold: 24
+          httpGet:
+            path: /health
+            port: 9121
+          periodSeconds: 5
+        resources:
+          {}
+        securityContext:
+          {}
+        ports:
+        - name: redis-exporter
+          containerPort: 9121
       imagePullSecrets:
         []
       securityContext:
