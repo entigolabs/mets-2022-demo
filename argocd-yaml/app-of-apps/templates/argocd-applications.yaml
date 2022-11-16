@@ -20,9 +20,7 @@ spec:
     path: argocd-applications
     repoURL: {{ .Values.gitrepo }}
     targetRevision: {{ .Values.gitbranch }}
-{{- if ne .Values.runenv "prod" }}
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
-{{ end }}

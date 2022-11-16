@@ -19,9 +19,7 @@ spec:
   syncPolicy:
     syncOptions:
     - CreateNamespace=true
-{{- if ne .Values.runenv "prod" }}
     automated:
       prune: true
       selfHeal: true
-{{ end }}
 
