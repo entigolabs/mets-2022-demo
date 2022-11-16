@@ -16,8 +16,10 @@ spec:
       valueFiles:
         - values.yaml
   syncPolicy:
+{{- if ne .Values.runenv "prod" }}
     automated:
       prune: true
       selfHeal: true
+{{ end }}
     syncOptions:
     - CreateNamespace=true

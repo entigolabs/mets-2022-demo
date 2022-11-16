@@ -66,30 +66,6 @@ spec:
           periodSeconds: 5
       terminationGracePeriodSeconds: 5
 ---
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: redis
-spec:
-  selector:
-    matchLabels:
-      app: redis
-  serviceName: "redis"
-  replicas: 1
-  template:
-    metadata:
-      labels:
-        app: redis
-    spec:
-      terminationGracePeriodSeconds: 10
-      containers:
-      - name: redis
-        image: {{ .Values.redis.image }}
-        imagePullPolicy: IfNotPresent
-        ports:
-        - containerPort: 6379
-          name: redis
----
 apiVersion: v1
 kind: Service
 metadata:
@@ -113,19 +89,6 @@ spec:
     targetPort: 3001
   selector:
     app: api
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: redis
-spec:
-  ports:
-  - name: redis
-    port: 6379
-    protocol: TCP
-    targetPort: 6379
-  selector:
-    app: redis
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
