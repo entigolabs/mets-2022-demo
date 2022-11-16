@@ -1,0 +1,12 @@
+
+runenv: ""
+internaldomain: ""
+
+nodeSelector:
+  monitoring: "true"
+
+tolerations:
+- key: "monitoring"
+  operator: "Equal"
+  value: "true"
+  effect: "NoSchedule"

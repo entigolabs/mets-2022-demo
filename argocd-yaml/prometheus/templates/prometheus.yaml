@@ -1,0 +1,819 @@
+ 
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: prometheus
+  namespace: monitoring
+  annotations:
+    ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: "haproxy-int"
+  rules:
+  - host: prometheus.{{ .Values.internaldomain }}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: prometheus
+            port: 
+              number: 9090
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: node-exporter
+  namespace: monitoring
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: monitoring
+  labels:
+    name: node-exporter
+spec:
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+  selector:
+    matchLabels:
+      k8s_app: node-exporter
+  template:
+    metadata:
+      labels:
+        name: node-exporter
+        k8s_app: node-exporter
+      annotations:
+         prometheus.io/scrape: "false"
+         prometheus.io/port: "9100"
+    spec:
+      hostPID: true
+      hostIPC: true
+      hostNetwork: true
+      tolerations:
+      - operator: Exists
+      containers:
+        - ports:
+            - containerPort: 9100
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 0.15
+          securityContext:
+            privileged: true
+          image: prom/node-exporter:v1.3.1
+          args:
+            - --path.procfs
+            - /host/proc
+            - --path.sysfs
+            - /host/sys
+            - --collector.filesystem.ignored-mount-points
+            - '"^/(sys|proc|dev|host|etc)($|/)"'
+          name: node-exporter
+          volumeMounts:
+            - name: dev
+              mountPath: /host/dev
+            - name: proc
+              mountPath: /host/proc
+            - name: sys
+              mountPath: /host/sys
+            - name: rootfs
+              mountPath: /rootfs
+      volumes:
+        - name: proc
+          hostPath:
+            path: /proc
+        - name: dev
+          hostPath:
+            path: /dev
+        - name: sys
+          hostPath:
+            path: /sys
+        - name: rootfs
+          hostPath:
+            path: /
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: prometheus
+  name: prometheus
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      creationTimestamp: null
+      labels:
+        app: prometheus
+      annotations:
+        prometheus.io/scrape: "false"
+        prometheus.io/port: "9090"
+    spec:
+{{- if .Values.tolerations }}
+      tolerations:
+{{ toYaml .Values.tolerations | indent 8 }}
+{{- end }}
+{{- if .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml .Values.nodeSelector | indent 8 }}
+{{- end }}
+      containers:
+      - command:
+        - /bin/sh
+        - '-c'
+        - '/bin/prometheus --config.file=/etc/prometheus/kube-monitoring.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=24h --web.max-connections=64 --query.max-concurrency=10 --query.max-samples=10000000'
+        image: prom/prometheus:v2.31.1
+        imagePullPolicy: IfNotPresent
+        name: prometheus
+        ports:
+        - containerPort: 9090
+          protocol: TCP
+        resources:
+          limits:
+            cpu: 2000m
+            memory: 3000Mi
+          requests:
+            cpu: 100m
+            memory: 1000Mi
+        volumeMounts:
+        - mountPath: /prometheus
+          name: prometheus-pv-storage
+        - mountPath: /etc/prometheus
+          name: config-volume
+        - name: prometheus-alert-rules
+          mountPath: /etc/prometheus-rules
+      restartPolicy: Always
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 0
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: prometheus-pv-storage
+        hostPath:
+          path: /data/prometheus
+          type: DirectoryOrCreate
+      - configMap:
+          name: prometheus-config
+        name: config-volume
+      - name: prometheus-alert-rules
+        configMap:
+          name: prometheus-alert-rules        
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: monitoring
+  annotations:
+    prometheus.io/probe: "false"
+spec:
+  ports:
+  - name: http-monitoring
+    port: 9090
+    protocol: TCP
+    targetPort: 9090
+  selector:
+    app: prometheus
+  type: ClusterIP
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/proxy
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses
+  verbs: ["get", "list", "watch"]
+- apiGroups:
+  - networking.istio.io
+  resources:
+  - gateway
+  - virtualservice
+  verbs: ["get", "list", "watch"]
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  - ingresses
+  verbs:
+  - list
+  - watch
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus
+subjects:
+- kind: ServiceAccount
+  name: default
+  namespace: monitoring
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: monitoring
+data:
+  kube-monitoring.yml: |
+    global:
+      scrape_interval:     30s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
+      evaluation_interval: 30s # Evaluate rules every 15 seconds. The default is every 1 minute.
+      external_labels:
+        location: qa
+    rule_files:
+    - '/etc/prometheus-rules/alert.rules'
+    scrape_configs:
+    - job_name: 'kubernetes-apiservers'
+      kubernetes_sd_configs:
+      - role: endpoints
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+        action: keep
+        regex: default;kubernetes;https
+    - job_name: 'kubernetes-cadvisor'
+      scheme: https
+      tls_config:
+        ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+      kubernetes_sd_configs:
+      - role: node
+      relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - target_label: __address__
+        replacement: kubernetes.default.svc:443
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+    - job_name: 'kubernetes-service-endpoints'
+      kubernetes_sd_configs:
+      - role: endpoints
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+        action: replace
+        target_label: __scheme__
+        regex: (https?)
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+        action: replace
+        target_label: __address__
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+      - action: labelmap
+        regex: __meta_kubernetes_service_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_service_name]
+        action: replace
+        target_label: kubernetes_name
+    - job_name: 'kubernetes-ingresses'
+      metrics_path: /probe
+      params:
+        module: [http_2xx]
+      kubernetes_sd_configs:
+        - role: ingress
+      relabel_configs:
+        - source_labels: [__meta_kubernetes_ingress_annotation_prometheus_io_probe]
+          action: keep
+          regex: true
+        - source_labels: [__meta_kubernetes_ingress_scheme,__address__]
+          regex: (.+);(.+)
+          replacement: ${1}://${2}
+          target_label: __param_target
+        - source_labels: [__param_target,__meta_kubernetes_ingress_annotation_prometheus_io_statuspath]
+          separator: ';'
+          regex: (.*?);(.*?)
+          replacement: ${1}${2}
+          target_label: __param_target
+        - target_label: __address__
+          replacement: blackbox:9115
+        - source_labels: [__param_target]
+          target_label: instance
+        - action: labelmap
+          regex: __meta_kubernetes_ingress_label_(.+)
+        - source_labels: [__meta_kubernetes_namespace]
+          target_label: kubernetes_namespace
+        - source_labels: [__meta_kubernetes_ingress_name]
+          target_label: kubernetes_name
+    - job_name: 'kubernetes-pods'
+      kubernetes_sd_configs:
+      - role: pod
+      relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: kubernetes_pod_name
+    - job_name: 'node-exporter'
+      honor_timestamps: true
+      metrics_path: /metrics
+      scheme: http
+      kubernetes_sd_configs:
+      - role: pod
+      relabel_configs:
+      - separator: ;
+        regex: __meta_kubernetes_pod_label_(.+)
+        replacement: $1
+        action: labelmap
+      - source_labels: [__address__]
+        separator: ;
+        regex: ([^:]+)(?::\d+)?
+        target_label: __address__
+        replacement: $1:9100
+        action: replace
+      - source_labels: [__meta_kubernetes_pod_label_k8s_app]
+        separator: ;
+        regex: node-exporter
+        replacement: $1
+        action: keep
+      - source_labels: [__meta_kubernetes_namespace]
+        separator: ;
+        regex: (.*)
+        target_label: kubernetes_namespace
+        replacement: $1
+        action: replace
+      - source_labels: [__meta_kubernetes_pod_name]
+        separator: ;
+        regex: (.*)
+        target_label: pod
+        replacement: $1
+        action: replace
+      - source_labels: [__meta_kubernetes_pod_node_name]
+        separator: ;
+        regex: (.*)
+        target_label: instance
+        replacement: $1
+        action: replace
+
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-alert-rules
+  namespace: monitoring
+data:
+  alert.rules: |-
+    groups:
+    - name: Generic
+      rules:
+      - alert: PrometheusConfigurationReload
+        expr: prometheus_config_last_reload_successful != 1
+        for: 5m
+        labels:
+          severity: error
+        annotations:
+          summary: "Prometheus configuration reload (instance {{ "{{" }} $labels.instance {{ "}}" }}) in {{ "{{" }} $externalLabels.location {{ "}}" }}.\n"
+          description: "Prometheus configuration reload error.\n"
+      - alert: AlertmanagerConfigurationReload
+        expr: alertmanager_config_last_reload_successful != 1
+        for: 5m
+        labels:
+          severity: error
+        annotations:
+          summary: "AlertManager configuration reload (instance {{ "{{" }} $labels.instance {{ "}}" }}) in {{ "{{" }} $externalLabels.location {{ "}}" }}.\n"
+          description: "AlertManager configuration reload error.\n"
+      - alert: ExporterDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Exporter down (instance {{ "{{" }} $labels.instance {{ "}}" }}) in {{ "{{" }} $externalLabels.location {{ "}}" }}.\n"
+          description: "Prometheus exporter down.\n"
+    - name: Node_Exporter
+      rules:
+      - alert: Node_down
+        expr: up{job="node-exporter"} == 0
+        for: 5m
+        labels:
+          severity: warning
+          env: prod
+        annotations:
+          title: "Node {{ "{{" }} $labels.instance }} is down in {{ "{{" }} $externalLabels.location {{ "}}" }}.\n"
+          description: "Failed to scrape {{ "{{" }} $labels.job }} on {{ "{{" }} $labels.instance }} for more than 5 minutes. Node seems down."
+      - alert: OutOfMemory
+        expr: (node_memory_MemFree_bytes + node_memory_Cached_bytes + node_memory_Buffers_bytes) / node_memory_MemTotal_bytes * 100 < 10
+        for: 5m
+        labels:
+          severity: warning
+          env: prod
+        annotations:
+          summary: "Out of memory (instance {{ "{{" }} $labels.instance {{ "}}" }}) in {{ "{{" }} $externalLabels.location {{ "}}" }}.\n"
+          description: "Node memory is filling up (< 10% left).\n"
+      - alert: UnusualNetworkThroughputIn
+        expr: sum by (instance) (irate(node_network_receive_bytes_total[2m])) / 1024 / 1024 > 100
+        for: 5m
+        labels:
+          severity: warning
+          env: prod
+        annotations:
+          summary: "Unusual network throughput in (instance {{ "{{" }} $labels.instance {{ "}}" }}) in {{ "{{" }} $externalLabels.location {{ "}}" }}.\n"
+          description: "Host network interfaces are probably receiving too much data (> 100 MB/s)\n  VALUE = {{ "{{" }} $value }}\n  LABELS: {{ "{{" }} $labels }}"
+      - alert: UnusualNetworkThroughputOut
+        expr: sum by (instance) (irate(node_network_transmit_bytes_total[2m])) / 1024 / 1024 > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Unusual network throughput out (instance {{ "{{" }} $labels.instance {{ "}}" }}) in {{ "{{" }} $externalLabels.location {{ "}}" }}.\n"
+          description: "Host network interfaces are probably sending too much data (> 100 MB/s)\n  VALUE = {{ "{{" }} $value }}\n  LABELS: {{ "{{" }} $labels }}"
+      - alert: UnusualDiskWriteRate
+        expr: sum by (instance) (irate(node_disk_written_bytes_total[2m])) / 1024 / 1024 > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Unusual disk write rate (instance {{ "{{" }} $labels.instance {{ "}}" }}) in {{ "{{" }} $externalLabels.location }}\n"
+          description: "Disk is probably writing too much data (> 50 MB/s).\n"
+      - alert: OutOfDiskSpace
+        expr: node_filesystem_free_bytes / node_filesystem_size_bytes * 100 < 10
+        for: 5m
+        labels:
+          severity: warning
+          env: prod
+        annotations:
+          summary: "Out of disk space (instance {{ "{{" }} $labels.instance {{ "}}" }}) in {{ "{{" }} $externalLabels.location {{ "}}" }}.\n"
+          description: "Disk is almost full (< 10% left)\n  VALUE = {{ "{{" }} $value }}\n  LABELS: {{ "{{" }} $labels }}"
+      - alert: OutOfInodes
+        expr: node_filesystem_files_free / node_filesystem_files * 100 < 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Out of inodes (instance {{ "{{" }} $labels.instance {{ "}}" }}) in {{ "{{" }} $externalLabels.location }}\n"
+          description: "Disk is almost running out of available inodes (< 10% left).\n"
+      - alert: UnusualDiskReadLatency
+        expr: rate(node_disk_read_time_seconds_total[1m]) / rate(node_disk_reads_completed_total[1m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Unusual disk read latency (instance {{ "{{" }} $labels.instance {{ "}}" }}) in {{ "{{" }} $externalLabels.location }}\n"
+          description: "Disk latency is growing (read operations > 100ms).\n"
+      - alert: UnusualDiskWriteLatency
+        expr: rate(node_disk_write_time_seconds_total[1m]) / rate(node_disk_writes_completed_total[1m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Unusual disk write latency (instance {{ "{{" }} $labels.instance {{ "}}" }}) in {{ "{{" }} $externalLabels.location }}\n."
+          description: "Disk latency is growing (write operations > 100ms)\n"
+      - alert: HighCpuLoad
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU load (instance {{ "{{" }} $labels.instance {{ "}}" }}) in {{ "{{" }} $externalLabels.location }}\n"
+          description: "CPU load is > 80%.\n"
+    - name: KubeSystem
+      rules:
+      - alert: KubeDNSNotRunning
+        expr: up{k8s_app="kube-dns"} != 1
+        for: 1m
+        labels:
+          severity: crit
+          env: prod
+        annotations:
+          summary: "KubeDNS is down in {{ "{{" }} $externalLabels.location }}\n"
+          description: " {{ "{{" }} $labels.k8s_app }} instance {{ "{{" }} $labels.instance }} is down\n"
+      - alert: cAdvisorNotRunning
+        expr: up{job="kubernetes-cadvisor"} != 1
+        for: 1m
+        labels:
+          severity: crit
+          env: prod
+        annotations:
+          summary: "cAdvisor is down in {{ "{{" }} $externalLabels.location }}\n"
+          description: "{{ "{{" }} $labels.k8s_app }} instance {{ "{{" }} $labels.instance }} is down\n"
+      - alert: KubeApiServersDown
+        expr: up{job="kubernetes-apiservers"} != 1
+        for: 1m
+        labels:
+          severity: crit
+          env: prod
+        annotations:
+          summary: "Kubernetes Apiserver is down in {{ "{{" }} $externalLabels.location }}\n"
+          description: "{{ "{{" }} $labels.instance }} is down\n"
+      - alert: KubeNodeDown
+        expr: up{job="kubernetes-nodes"} != 1
+        for: 1m
+        labels:
+          severity: crit
+          env: prod
+        annotations:
+          summary: "Kubernetes node is down in {{ "{{" }} $externalLabels.location }}\n"
+          description: "Kubernetes node {{ "{{" }} $labels.instance }} is down\n"
+      - alert: KubeletCertificateExpiryInNinetyD
+        expr: (kubelet_certificate_manager_server_expiration_seconds) - time () <  86400 * 90
+        for: 1m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Kubelet apiserver certificate will expire in 90 days in {{ "{{" }} $externalLabels.location {{ "}}" }}.\n"
+          description: "Kubelet apiserver certificate will expire in 90 days for instance {{ "{{" }} $labels.instance {{ "}}" }}.\n"
+      - alert: KubeletCertificateExpiryInThirtyD
+        expr: (kubelet_certificate_manager_server_expiration_seconds) - time () <  86400 * 30
+        for: 1m
+        labels:
+          severity: crit
+        annotations:
+          summary: "Kubelet apiserver certificate will expire in 90 days in {{ "{{" }} $externalLabels.location {{ "}}" }}.\n"
+          description: "Kubelet apiserver certificate will expire in 90 days for instance {{ "{{" }} $labels.instance {{ "}}" }}.\n"          
+      - alert: PvcEightyFull
+        expr: (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) * 100 >= 80 
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: "The PVC {{ "{{" }} $labels.persistentvolumeclaim }} is over 80% full in namespace {{ "{{" }} $labels.namespace {{ "}}" }}.\n"          
+      - alert: PvcNinetyFull
+        expr: (kubelet_volume_stats_used_bytes / kubelet_volume_stats_capacity_bytes) * 100 >= 90 
+        for: 5m
+        labels:
+          severity: crit
+          env: prod
+        annotations:
+          summary: "The PVC {{ "{{" }} $labels.persistentvolumeclaim }} is over 90% full in namespace {{ "{{" }} $labels.namespace {{ "}}" }}.\n"          
+      - alert: ContainerNotRunningInPod
+        expr: (kube_pod_container_status_running == 0 or kube_pod_container_status_ready == 0) and kube_pod_container_status_terminated == 0
+        for: 10m
+        labels:
+          severity: error
+          env: '{{ "{{" }} $labels.namespace }}'
+        annotations:
+          summary: "Pod {{ "{{" }} $labels.pod }} ({{ "{{" }} $labels.container {{ "}}" }}) in {{ "{{" }} $labels.namespace }} not running at {{ "{{" }} $externalLabels.location }}\n"
+      - alert: ContainerStuckInTerminatingStatus
+        expr: kube_pod_container_status_terminated{container!~"istio-init-crd-.*"} != 0 and kube_pod_container_status_last_terminated_reason{reason!="Completed"} == 1
+        for: 1h
+        labels:
+          severity: error
+        annotations:
+          summary: "Pod {{ "{{" }} $labels.pod }} ({{ "{{" }} $labels.container {{ "}}" }}) in {{ "{{" }} $labels.namespace }} is stuck in Terminating status at {{ "{{" }} $externalLabels.location }}\n"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-state-metrics
+  annotations:
+    prometheus.io/scrape: 'true'
+    prometheus.io/port: '8080'
+  name: kube-state-metrics
+  namespace: kube-system
+spec:
+  clusterIP: None
+  ports:
+  - name: http-metrics
+    port: 8080
+    targetPort: http-metrics
+  selector:
+    app.kubernetes.io/name: kube-state-metrics
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-state-metrics
+  name: kube-state-metrics
+  namespace: kube-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-state-metrics
+  name: kube-state-metrics
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kube-state-metrics
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kube-state-metrics
+    spec:
+{{- if .Values.tolerations }}
+      tolerations:
+{{ toYaml .Values.tolerations | indent 8 }}
+{{- end }}
+{{- if .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml .Values.nodeSelector | indent 8 }}
+{{- end }}
+      containers:
+      - image: bitnami/kube-state-metrics:2.6.0
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+        name: kube-state-metrics
+        ports:
+        - containerPort: 8080
+          name: http-metrics
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8081
+          initialDelaySeconds: 5
+          timeoutSeconds: 5
+        securityContext:
+          runAsUser: 65534
+      nodeSelector:
+        kubernetes.io/os: linux
+      serviceAccountName: kube-state-metrics
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-state-metrics
+  name: kube-state-metrics
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - secrets
+  - nodes
+  - pods
+  - services
+  - resourcequotas
+  - replicationcontrollers
+  - limitranges
+  - persistentvolumeclaims
+  - persistentvolumes
+  - namespaces
+  - endpoints
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - extensions
+  resources:
+  - daemonsets
+  - deployments
+  - replicasets
+  - ingresses
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  - daemonsets
+  - deployments
+  - replicasets
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - cronjobs
+  - jobs
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - autoscaling
+  resources:
+  - horizontalpodautoscalers
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - certificates.k8s.io
+  resources:
+  - certificatesigningrequests
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - storageclasses
+  - volumeattachments
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - mutatingwebhookconfigurations
+  - validatingwebhookconfigurations
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  - ingresses
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/name: kube-state-metrics
+  name: kube-state-metrics
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kube-state-metrics
+subjects:
+- kind: ServiceAccount
+  name: kube-state-metrics
+  namespace: kube-system

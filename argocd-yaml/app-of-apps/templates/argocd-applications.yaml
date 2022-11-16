@@ -1,0 +1,28 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-of-apps
+spec:
+  destination:
+    server: https://kubernetes.default.svc
+  project: default
+  source:
+    helm:
+      parameters:
+      - name: runenv
+        value: {{ .Values.runenv }}
+      - name: gitrepo
+        value: {{ .Values.gitrepo }}
+      - name: gitbranch
+        value: {{ .Values.gitbranch }}
+      - name: domain
+        value: {{ .Values.domain }}
+    path: argocd-applications
+    repoURL: {{ .Values.gitrepo }}
+    targetRevision: {{ .Values.gitbranch }}
+{{- if ne .Values.runenv "prod" }}
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+{{ end }}
