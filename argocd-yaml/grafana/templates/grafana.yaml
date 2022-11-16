@@ -23,7 +23,6 @@ metadata:
   annotations:
     ingress.kubernetes.io/ssl-redirect: "false"
 spec:
-  ingressClassName: "haproxy-int"
   rules:
   - host: {{ .Values.internaldomain }}
     http:
