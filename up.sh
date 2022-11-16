@@ -11,7 +11,7 @@ git clone --branch dev https://github.com/entigolabs/mets-2022-demo.git
 # git clone --branch main https://github.com/entigolabs/mets-2022-demo.git
 
 #Instlal dependencies (helm, kubectl, kind...)
-cd mets-2022 && ./install-dependencies.sh
+cd mets-2022-demo && ./install-dependencies.sh
 
 #Create kind kubernetes clusters
 kind create cluster --config kind.yaml
