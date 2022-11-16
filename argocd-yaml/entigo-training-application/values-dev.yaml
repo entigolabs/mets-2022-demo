@@ -3,9 +3,8 @@ runenv: ""
 externaldomain: "web.dev.kind.learn.entigo.io"
 
 web:
-  replicaCount: 3
+  replicaCount: 4
   
 api:
-  replicaCount: 2
-  redisHost: redis
+  replicaCount: 4
 
