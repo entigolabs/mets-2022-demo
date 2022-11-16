@@ -9,7 +9,7 @@ web:
 api:
   replicaCount: 2
   image: entigolabs/entigo-kubernetes-training-application:api-v1
-  redisHost: keydb
+  redisHost: redis
 
 redis:
   image: redis:6

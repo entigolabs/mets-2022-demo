@@ -1,7 +1,0 @@
-apiVersion: v2
-name: keydb
-description: keydb chart for Kubernetes
-type: application
-
-version: 1.0.0
-appVersion: "1.0.0"
