@@ -1,6 +1,6 @@
 
 runenv: "test"
-externaldomain: "web.test.kind.learn.entigo.io"
+externaldomain: "web.prod.kind.learn.entigo.io"
 
 web:
   replicaCount: 6
