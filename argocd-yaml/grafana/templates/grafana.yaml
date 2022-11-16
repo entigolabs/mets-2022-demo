@@ -25,7 +25,7 @@ metadata:
 spec:
   ingressClassName: "haproxy-int"
   rules:
-  - host: grafana.{{ .Values.internaldomain }}
+  - host: {{ .Values.internaldomain }}
     http:
       paths:
       - path: /

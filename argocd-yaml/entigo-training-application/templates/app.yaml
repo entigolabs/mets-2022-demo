@@ -117,7 +117,7 @@ metadata:
 spec:
   ingressClassName: "haproxy-ext"
   rules:
-  - host: "web.{{ .Values.externaldomain }}"
+  - host: "{{ .Values.externaldomain }}"
     http:
       paths:
       - path: /
