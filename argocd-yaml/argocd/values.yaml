@@ -1,0 +1,9 @@
+
+internaldomain: "local"
+
+nodeSelector:
+  node-role.kubernetes.io/control-plane: ""
+
+tolerations:
+- key: "node-role.kubernetes.io/master"
+  effect: "NoSchedule"

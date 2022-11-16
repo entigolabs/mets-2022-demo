@@ -1,0 +1,24 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: entigo-training-application
+  namespace: argocd
+spec:
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  project: default
+  source:      
+    path: argocd-yaml/entigo-training-application
+    repoURL: {{ .Values.gitrepo }}
+    targetRevision: {{ .Values.gitbranch }}
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-{{ .Values.runenv }}.yaml
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
