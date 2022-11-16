@@ -1,0 +1,11 @@
+
+runenv: "test"
+externaldomain: "web.test.kind.learn.entigo.io"
+
+web:
+  replicaCount: 6
+  
+api:
+  replicaCount: 4
+  redisHost: redis
+
