@@ -13,7 +13,6 @@ spec:
     repoURL: {{ .Values.gitrepo }}
     targetRevision: {{ .Values.gitbranch }}
     helm:
-      ignoreMissingValueFiles: true
       valueFiles:
         - values.yaml
 
