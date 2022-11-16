@@ -1,0 +1,3 @@
+
+runenv: "test"
+internaldomain: "prometheus.test.kind.learn.entigo.io"

@@ -1,0 +1,10 @@
+
+runenv: "test"
+externaldomain: "web.prod.kind.learn.entigo.io"
+
+web:
+  replicaCount: 4
+  
+api:
+  replicaCount: 8
+

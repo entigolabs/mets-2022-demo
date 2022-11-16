@@ -1,0 +1,4 @@
+
+runenv: "prod"
+internaldomain: "grafana.prod.kind.learn.entigo.io"
+
