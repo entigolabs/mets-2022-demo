@@ -15,8 +15,6 @@ spec:
         value: {{ .Values.gitrepo }}
       - name: gitbranch
         value: {{ .Values.gitbranch }}
-      - name: domain
-        value: {{ .Values.domain }}
     path: argocd-applications
     repoURL: {{ .Values.gitrepo }}
     targetRevision: {{ .Values.gitbranch }}
