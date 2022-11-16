@@ -1,4 +1,5 @@
 
 runenv: "dev"
-gitrepo: "https://github.com/entigolabs/mets-2022.git"
-gitbranch: "main"
+gitrepo: "https://github.com/entigolabs/mets-2022-demo.git"
+gitbranch: "dev"
+domain: "dev.kind.learn.entigo.io"

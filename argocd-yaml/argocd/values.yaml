@@ -1,5 +1,5 @@
 
-internaldomain: "local"
+domain: "local"
 
 nodeSelector:
   node-role.kubernetes.io/control-plane: ""
